@@ -1,0 +1,92 @@
+############################### ACWII Portfolio Analysis ##########################
+
+# Monthly Returns Iteration
+ACWII_Monthly_returns_fn <- function(r, x, y) {
+  
+  Quantile_Exposure <- ACWII_Consol_Quarterly_Rank %>% filter(Rank == r)
+  
+  Quarter <- Quantile_Exposure %>% filter(Date == x) %>% ungroup %>% 
+    select(SEDOL)
+  
+  Quarter_mnthly_prices <- left_join(Quarter,ACWII_Prices_long,"SEDOL" = "SEDOL") %>%
+    select(Date, SEDOL, Price) %>% filter(Date >= x & Date <= y) %>% 
+    arrange(Date)
+  
+  Monthly_stocks_returns <- Quarter_mnthly_prices %>% group_by(SEDOL) %>% 
+    tq_transmute(select = Price, mutate_fun = periodReturn, 
+                 period = "monthly", col_rename = "R1") 
+  
+  Ticker_len <- length(unique(Monthly_stocks_returns$SEDOL))
+  
+  wts <- c(rep(1/Ticker_len,Ticker_len))
+  
+  Monthly_Portfolio_Ret <- Monthly_stocks_returns %>% tq_portfolio(assets_col = SEDOL, 
+                          returns_col = R1, weights = wts, col_rename = "R1") %>% 
+                          filter(Date > Date[1])
+  
+  return(Monthly_Portfolio_Ret$R1)
+}
+
+
+ACWII_Monthly_returns <- map2_dfr(r=32, Quarterly_dates, Quarterly_dates_2, 
+                                  ACWII_Monthly_returns_fn)
+
+# Compile into data frames
+
+ACWII_Mthly_Quantile_Returns <- data.frame(Date = ACWII_Monthly_returns$Date, 
+                                           R1 = ACWII_Monthly_returns$R1)
+ACWII_Mthly_Quantile_Returns <- ACWII_Mthly_Quantile_Returns %>% 
+                                mutate(R32 = ACWII_Monthly_returns$R1)
+
+# Annualized Returns, Std Dev & CV
+Ann_Ret_ACWII <- Return.annualized(tk_xts(ACWII_Mthly_Quantile_Returns, date_var = Date),
+                                    scale = 12)
+Ann_Stdev_ACWII <- StdDev.annualized(tk_xts(ACWII_Mthly_Quantile_Returns, date_var = Date),
+                                   scale = 12)
+
+ACWII_Consol_Port <- data.frame(Portfolio = paste("Portfolio", seq(1:30)), 
+                    Returns = c(Ann_Ret_ACWII), StdDev = c(Ann_Stdev_ACWII)) %>% 
+                    mutate(CV = StdDev/Returns)
+
+# Plot GU Momentum vs ACWII Momentum
+ACWII_Return_Comp <- Q30_Mthly_Returns[,c(1,7)] %>% 
+                      mutate(R23 = ACWII_Mthly_Quantile_Returns[,24],
+                             Excess = R23 - R6) %>% 
+                      mutate(R23G = cumprod(1 + R23), R6G = cumprod(1 + R6))
+
+ACWII_Growth_Compare_Plot <- ACWII_Return_Comp %>% ggplot(aes(x = Date)) +
+  geom_line(aes(y = R6G), color = "red") +
+  geom_line(aes(y = R23G), color = "blue") +
+  theme_tq() + scale_color_tq() +
+  scale_y_continuous(breaks = seq(0,2.5, by = 0.5)) + 
+  scale_x_date(breaks = seq(as.Date("2016-04-29"), as.Date("2020-07-30"),
+                        by = "1 year"), date_breaks = "1 year",date_labels = "%Y") 
+
+#################################### To Export graph #################################
+# Export graph to ppt
+editable_graph <- dml(ggobj = ACWII_Annualized_Vol_graph)
+doc <- read_pptx()
+doc <- add_slide(doc)
+doc <- ph_with(x = doc, editable_graph, location = ph_location_type(type = "body"))
+print(doc, target = "ACWII_Ann_Vol.pptx")
+
+######################### Calculating Annualized Returns ###########################
+
+# Rolling annualized vol
+Annualized_vol <- function(x){sd(x)*sqrt(12)}
+R23 = drop(coredata(apply.rolling(tk_xts(ACWII_Return_Comp[,c(1,3)], date_var = Date),
+                                 width = 12,FUN = Annualized_vol)))
+R6 = drop(coredata(apply.rolling(tk_xts(ACWII_Return_Comp[,c(1,2)], date_var = Date),
+                                 width = 12,FUN = Annualized_vol)))
+
+Annualized_vol_df <- data.frame(Date = ACWII_Return_Comp$Date[12:52], 
+                                R23 = R23[12:52], R6 = R6[12:52])
+
+ACWII_Annualized_Vol_graph <- Annualized_vol_df %>% ggplot(aes(x = Date)) + 
+  geom_line(aes(y = R6), color = "red") +
+  geom_line(aes(y = R23), color = "blue") +
+  theme_tq() + scale_color_tq() +
+  scale_y_continuous(breaks = seq(0,0.20,0.05), limits = c(0.05,0.20), 
+                     labels = scales::percent) +
+  scale_x_date(breaks = seq(as.Date("2016-04-29"), as.Date("2020-07-30"),
+                            by = "1 year"), date_labels = "%Y")
