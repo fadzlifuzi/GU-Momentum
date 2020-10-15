@@ -1,0 +1,212 @@
+
+
+## Portfolio Analysis of Top 20 Momentum Stocks in GU ##
+library(tidyquant)
+library(timetk)
+library(officer)
+library(rvg)
+
+# Setting dates for iteration
+Quarterly_dates <- unique(GU_Consol_Quarterly$Date)[-19]
+Quarterly_dates_2 <- unique(GU_Consol_Quarterly$Date)[-1]
+
+# Calculate portfolio quarterly returns
+Quarterly_returns_fn <- function(r, x, y) {
+  
+  Quantile_Exposure <- GU_Consol_Quarterly_Rank %>% filter(Rank == r)
+  
+  Quarter_stocks <- Quantile_Exposure %>% filter(Date == x) %>% 
+    ungroup %>% select(TICKER)
+  
+  Quarter_prices <- left_join(Quarter_stocks,GU_Prices_long, 
+                    "TICKER" = "TICKER") %>% select(Date, TICKER, Price) %>% 
+                    filter(Date >= x & Date <= y) %>% arrange(Date)
+  
+  Quarter_returns <- Quarter_prices %>% group_by(TICKER) %>% 
+    tq_transmute(select = Price, mutate_fun = periodReturn, 
+                 period = "quarterly", col_rename = "R1") 
+  
+  wts <- c(rep(1/(nrow(Quarter_returns)/2),nrow(Quarter_returns)/2))
+  
+  Quarter_portfolio_ret <- Quarter_returns %>% tq_portfolio(assets_col = TICKER, 
+                           returns_col = R1, weights = wts, 
+                           col_rename = "R1") %>% filter(Date == max(Date))
+  
+  return(Quarter_portfolio_ret) }
+
+Quarterly_returns <- map2_dfr(r=30, Quarterly_dates, Quarterly_dates_2, Quarterly_returns_fn)
+Quantile_Returns <- data.frame(Date = Quarterly_dates_2, R1 = Quarterly_returns$R1)
+Quantile_Returns <- Quantile_Returns %>% mutate(R30 = Quarterly_returns$R1)
+
+############################ Visualize Quarterly Returns #################################
+Monthly_ret_plot <- Q30_Mthly_Returns[,c(1,7)] %>% ggplot(aes(x = Date, y = R6)) +
+  geom_bar(stat = "identity", fill = palette_light()[[1]]) + 
+  # labs(title = "Monthly Portfolio Returns",
+  #      subtitle = "Equal Weighted Portfolio",
+  #      x = "", y = "Monthly Returns") + 
+  theme_tq() + scale_color_tq() + 
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y")
+
+################### Portfolio returns monthly (rebalancing remains quarterly) ####################
+
+Monthly_returns_fn <- function(r, x, y) {
+  
+  Quantile_Exposure <- GU_Consol_Quarterly_Rank %>% filter(Rank == r)
+  
+  Quarter <- Quantile_Exposure %>% filter(Date == x) %>% ungroup %>% 
+    select(TICKER)
+  
+  Quarter_mnthly_prices <- left_join(Quarter,GU_Prices_long,"TICKER" = "TICKER") %>%
+    select(Date, TICKER, Price) %>% filter(Date >= x & Date <= y) %>% 
+    arrange(Date)
+  
+  Monthly_stocks_returns <- Quarter_mnthly_prices %>% group_by(TICKER) %>% 
+    tq_transmute(select = Price, mutate_fun = periodReturn, 
+                 period = "monthly", col_rename = "R1") 
+  
+  Ticker_len <- length(unique(Monthly_stocks_returns$TICKER))
+  
+  wts <- c(rep(1/Ticker_len,Ticker_len))
+  
+  Monthly_Portfolio_Ret <- Monthly_stocks_returns %>% tq_portfolio(assets_col = TICKER, 
+                  returns_col = R1, weights = wts, col_rename = "R1") %>% 
+                  filter(Date > Date[1])
+  
+  return(Monthly_Portfolio_Ret)
+}
+
+# Run the function by varying r = 1 to n
+Monthly_returns <- map2_dfr(r=10, Quarterly_dates, Quarterly_dates_2, Monthly_returns_fn)
+
+# Compile into data frames
+Mthly_Quantile_Returns <- data.frame(Date = Monthly_returns$Date, R1 = Monthly_returns$R1)
+Mthly_Quantile_Returns <- Mthly_Quantile_Returns %>% mutate(R10 = Monthly_returns$R1)
+
+######################## Various Returns Measurement/Visualization ##########################
+# Name the monthly returns data for corresponding Quantile count
+Q30_Mthly_Returns <- Mthly_Quantile_Returns
+
+# Calculate annualized returns & stdev for all quantile
+Ann_Return_10Q <- Return.annualized(tk_xts(Q30_Mthly_Returns[,c(1,7)], date_var = Date),
+                                scale = 12)
+Ann_Stdev_30Q <- StdDev.annualized(tk_xts(Q30_Mthly_Returns, date_var = Date),
+                               scale = 12)
+CV <- mean(Ann_Stdev/Ann_Return) # Coefficient of Variation
+
+# Annual returns
+Annual_ret <- Q30_Mthly_Returns[,c(1,7)] %>%  group_by(Year = year(Date)) %>%
+  summarize(annual_return = prod(1 + R6) - 1) 
+
+# Portfolio Growth
+Portfolio_Growth <- Monthly_returns %>% mutate(Ra = cumprod(1 + R1)) %>% 
+                    mutate(Ra_Growth = Ra*10000)
+
+
+################################### MSCI ACWII Data ########################################
+
+MSCI_ACWII <- read.csv("MSCI ACWII 0316_0720.csv", header = TRUE)
+MSCI_ACWII$Date <- as.Date(MSCI_ACWII$Date, format = "%d/%m/%Y") 
+str(MSCI_ACWII)
+
+# Monthly analysis
+Monthly_Ret_ACWII <- MSCI_ACWII %>% tq_transmute(select = Price,
+                      mutate_fun = periodReturn, period = "monthly")
+Monthly_Ret_ACWII <- Monthly_Ret_ACWII[-1,]
+
+Monthly_Ret_Consol <- Q30_Mthly_Returns[,c(1,7)] %>% mutate(Rb = Monthly_Ret_ACWII$monthly.returns,
+                                                 Excess = R6 - Rb)
+# Monthly Growth
+Growth_Comparison <- Monthly_Ret_Consol %>% 
+                              mutate(R6G = cumprod(1 + R6), RbG = cumprod(1 + Rb)) %>%
+                              mutate(R6_Growth = R6G*10000, Rb_Growth = RbG*10000)
+
+Growth_Comparison_Quantile <- Mthly_Quantile_Returns %>% select(Date, R1, R4) %>% 
+                        mutate(R1G = cumprod(1 + R1), R4G = cumprod(1 + R4)) %>%
+                        mutate(R1_Growth = R1G*10000, R4_Growth = R4G*10000)
+
+# Annual & Annualized return
+Annual_ret_ACWII <- Monthly_Ret_ACWII %>% 
+  group_by(Year = year(Date)) %>% 
+  summarize(annual_return = prod(1 + monthly.returns) - 1) 
+
+Return.annualized(tk_xts(Monthly_Ret_ACWII, date_var = Date),scale = 12) 
+
+#################################### Visualization ####################################
+Monthly_Ret_Plot <- Monthly_returns %>% ggplot(aes(x = Date, y = R1)) +
+              geom_bar(stat = "identity", fill = palette_light()[[1]]) + 
+              labs(title = "Monthly Portfolio Returns",
+              subtitle = "Equal Weighted Portfolio",
+              x = "", y = "Monthly Returns") + 
+              theme_tq() + scale_color_tq() + 
+              scale_y_continuous(labels = scales::percent)
+
+Excess_Ret_Plot <- Monthly_Ret_Consol %>% ggplot(aes(x = Date, y = Excess)) +
+                   geom_bar(stat = "identity", fill = palette_light()[[1]]) + 
+                   theme_tq() + scale_color_tq() + 
+                   scale_y_continuous(labels = scales::percent)
+
+
+Growth_Compare_Plot <- Growth_Comparison %>% ggplot(aes(x = Date)) +
+              geom_line(aes(y = R6_Growth), color = "red") +
+              geom_line(aes(y = Rb_Growth), color = "blue") +
+              theme_tq() + scale_color_tq() +
+              scale_y_continuous(breaks = seq(10000,20000, by = 2000)) + 
+              scale_x_date(breaks = seq(as.Date("2016-04-29"), as.Date("2020-07-30"),
+              by = "1 year"), date_breaks = "1 year",date_labels = "%Y")
+
+#################################### To Export graph #################################
+# Export graph to ppt
+editable_graph <- dml(ggobj = Annualized_Vol_graph)
+doc <- read_pptx()
+doc <- add_slide(doc)
+doc <- ph_with(x = doc, editable_graph, location = ph_location_type(type = "body"))
+print(doc, target = "Annualized_Vol.pptx")
+
+######################### Calculating Annualized Returns ###########################
+Return.annualized(tk_xts(Q30_Mthly_Returns[41:52,c(1,7)], date_var = Date), scale = 12) # 1 year 
+Return.annualized(tk_xts(Monthly_Ret_ACWII[41:52,], date_var = Date), scale = 12) # 1 year
+
+Return.annualized(tk_xts(Q30_Mthly_Returns[17:52,c(1,7)], date_var = Date), scale = 12) # 3 year 
+Return.annualized(tk_xts(Monthly_Ret_ACWII[17:52,], date_var = Date), scale = 12) # 3 year
+
+# Risk Performance table
+Monthly_Ret_Consol %>% tq_performance(Ra = R6, Rb = Rb, 
+                                      performance_fun = table.VaR)
+
+# Rolling annualized vol
+Annualized_vol <- function(x){sd(x)*sqrt(12)}
+R6 = drop(coredata(apply.rolling(tk_xts(Growth_Comparison[,c(1,2)], date_var = Date),
+                                 width = 12,FUN = Annualized_vol)))
+Rb = drop(coredata(apply.rolling(tk_xts(Growth_Comparison[,c(1,3)], date_var = Date),
+                                 width = 12,FUN = Annualized_vol)))
+
+Annualized_vol_df <- data.frame(Date = Growth_Comparison$Date[12:52], 
+                                R6 = R6[12:52], Rb = Rb[12:52])
+
+Annualized_Vol_graph <- Annualized_vol_df %>% ggplot(aes(x = Date)) + 
+  geom_line(aes(y = R6), color = "red") +
+  geom_line(aes(y = Rb), color = "blue") +
+  theme_tq() + scale_color_tq() +
+  scale_y_continuous(breaks = seq(0,0.25,0.05), limits = c(0,0.25), 
+                     labels = scales::percent) +
+  scale_x_date(breaks = seq(as.Date("2016-04-29"), as.Date("2020-07-30"),
+  by = "1 year"), date_labels = "%Y") 
+
+############################# Analyze by Rank #################################
+
+Consol_Port <- data.frame(Portfolio = paste("Portfolio", seq(1:54)),
+                          Returns = c(Ann_Return_30Q,Ann_Return_15Q,Ann_Return_10Q),
+                          StdDev = c(Ann_Stdev_30Q, Ann_Stdev_15Q, Ann_Stdev_10Q),
+                          Size = c(rep("10 Stocks",30), rep("20 Stocks",14),
+                                            rep("30 Stocks",10))) %>% as_tibble()
+
+Consol_Port$Size <- as.factor(Consol_Port$Size)
+
+Consol_Port <- Consol_Port %>% mutate(CV = StdDev/Returns)
+
+Portfolio_Plot <- ggplot(Consol_Port, aes(x = StdDev, y = Returns, color = Size)) +
+                  geom_point(size = 2)
+
+# T-test
+
