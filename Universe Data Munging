@@ -1,0 +1,247 @@
+
+### Global Universe Data Loading and Cleaning ###
+packages <- c("readxl","tidyverse", "stringr", "fuzzyjoin", "lubridate")
+lapply(packages, require, character.only = TRUE)
+
+# Set working directory path
+setwd("/Volumes/FADZLI FUZI/Momentum Strategy Study/Global Universe")
+
+files.list <- list.files(pattern = "*.xlsx", full.names = T)
+
+# Create mm-yyyy dates sequence
+Date.seq <- seq(as.Date('2016/2/1',), length = 55, by = "1 month") - 1
+Date.seq <- Date.seq[c(1:52,54:55)]
+
+# Reading one file
+Universe_test <- read_excel(files.list[1], sheet = 1 ,
+                       range = "D7:AK356") %>% mutate(Date = "01-2020")
+
+Universe_test <- Universe_test[1: which(Universe_test$TICKER == "SIN BIN")-1,] %>% 
+                select(TICKER, NAME, `MSCI COUNTRY`, `FV UPSIDE`, Date)
+
+Universe_test <- Universe_test[complete.cases(Universe_test),]
+
+# Read multiple files and compile
+Universe.compile <- function(x,y){
+  Universe <- read_excel(x, sheet = 1 ,
+                         range = "D7:AK400") %>% mutate(Date = y)
+  
+  Universe <- Universe[1: which(Universe$TICKER == "SIN BIN")-1,] %>% 
+    select(TICKER, NAME, `MSCI COUNTRY`, SECTOR, `FV UPSIDE`, Date)
+  
+  Universe$`FV UPSIDE` <- as.numeric(Universe$`FV UPSIDE`)
+  
+  Universe <- Universe[complete.cases(Universe),]
+  
+  bind_rows(Universe)
+  return(Universe)
+}
+
+Global.Universe <- map2_dfr(files.list, Date.vector, Universe.compile) # Compile
+# Run the above code again when the date for Mom exposure file extracted (line 87)
+###################################################################################
+######### TICKER cleanup - Please refer to Ticker Cleanup Script ##############
+###################################################################################
+
+# Extract unique stocks for factor exposure downloading from FactSet
+Global_Universe_list <- unique(Global.Universe$NAME)
+Unique.TICKER <- unique(Global.Universe$TICKER)
+write.csv(Unique.TICKER, "Unique_TICKER.csv")
+
+####################################################################################
+##### Combining factor exposure data from FactSet with the Global Universe #########
+# Load data
+Universe_Exposure <- read.csv("Global_Universe_Exposure_v3.csv", header = T)
+
+# Replace -- characters with 0
+Universe_Exposure <- Universe_Exposure %>% mutate_all(funs(str_replace(.,"--","0")))
+
+# Clean the column names except Date
+names(Universe_Exposure)[2:606] <- names(Universe_Exposure)[2:606] %>% 
+                                                      substr(start = 2, stop = 12)
+names(Universe_Exposure) <- gsub('\\.', '-', names(Universe_Exposure))
+
+# Convert exposure columns from character to numeric
+sapply(Universe_Exposure, class)
+Universe_Exposure[,2:606] <- Universe_Exposure[,2:606] %>% 
+                                            mutate_if(is.character, as.numeric)
+
+# Combine the duplicated column dates to common dates
+Universe_Exposure_Value <- sapply(unique(names(Universe_Exposure)[-1]), 
+  function(x) rowSums(Universe_Exposure[-1][,grep(x, names(Universe_Exposure)[-1]), 
+                                        drop = FALSE]))
+
+# Bind together with company names
+Universe_Exposure <- cbind(Universe_Exposure["NAME"], Universe_Exposure_Value)
+
+
+# Remove Exposure May 2020 because no Global Universe for that month
+Universe_Exposure <- Universe_Exposure[,c(1:53,55:56)]
+
+# Convert to long format
+Universe_Exposure_long <- Universe_Exposure %>% pivot_longer(-NAME) %>% 
+                              rename("Date" = name, "Exposure" = value)
+Universe_Exposure_long$Date <- as.Date(Universe_Exposure_long$Date, 
+                                       format = '%d-%b-%Y')
+
+Date.vector <- unique(Universe_Exposure_long$Date) # use this for the Universe Compile fn
+
+## Combine Global Universe and Factor Exposure data frames
+Global_Universe_Exposure <- inner_join(Global.Universe, Universe_Exposure_long, 
+                            by = c("Date" = "Date", "NAME" = "NAME"))
+
+# Select by quarter
+Global_Universe_Quarterly <-  Global_Universe_Exposure %>% 
+                              group_by(Quarter = quarter(Date,T)) %>% 
+                              filter(Date == max(Date)) %>% ungroup %>% 
+                              select(-Quarter)
+
+####################### For Selecting Top 20 Stocks Every Quarter #############################
+# Select Top 20 every quarter
+Top_20_Exposure <- Global_Universe_Quarterly %>% 
+      select(Date, TICKER, NAME, `MSCI COUNTRY`, SECTOR, `FV UPSIDE`, Exposure) %>%
+      group_by(Date) %>% top_n(n = 20) 
+
+# For downloading prices from FactSet
+write.csv(unique(Top_20_Exposure$TICKER), "Top_20_Exposure_Global_Universe.csv")
+
+### Load prices data for the quarterly top stocks, Date & TICKER cleanup
+Top_20_Global_Universe_Prices <- read.csv("Global_Universe_Prices_0316_0720_v2.csv", 
+                                          header = TRUE)
+
+names(Top_20_Global_Universe_Prices) = gsub(pattern = "^X", replacement = "", 
+                              x = names(Top_20_Global_Universe_Prices))
+Top_20_Global_Universe_Prices$Date <- as.Date(Top_20_Global_Universe_Prices$Date, 
+                                              format = "%d/%m/%Y")
+names(Top_20_Global_Universe_Prices) <- gsub('\\.', ' ', 
+                                             names(Top_20_Global_Universe_Prices))
+
+Top_20_GU_Prices_long <- Top_20_Global_Universe_Prices %>%
+                    pivot_longer(-Date) %>% rename("TICKER" = name, "Price" = value)
+  
+  
+#### TICKER cleanup so that both ticker from Top_20_Exposure & Top_20_GU_Prices_long
+#### are the same.
+TICKER_Top_20_GU_Prices <- unique(Top_20_GU_Prices_long$TICKER)
+TICKER_Top_20_GU <- unique(Top_20_Exposure$TICKER)
+TICKER_Top_20_GU[!(TICKER_Top_20_GU %in% TICKER_Top_20_GU_Prices)] # Check TICKER similarity
+
+# TICKER cleanup for Top Exposure
+Top_20_GU_Prices_long$TICKER <- gsub(" R TB", "-R TB", Top_20_GU_Prices_long$TICKER)
+Top_20_GU_Prices_long$TICKER <- gsub("ATLN VX", "ATLN SW", Top_20_GU_Prices_long$TICKER)
+Top_20_GU_Prices_long$TICKER <- gsub("9983 JN", "9983 JT", Top_20_GU_Prices_long$TICKER)
+Top_20_GU_Prices_long$TICKER <- gsub("4911 JN", "4911 JT", Top_20_GU_Prices_long$TICKER)
+Top_20_GU_Prices_long$TICKER <- gsub("7747 JN", "7747 JT", Top_20_GU_Prices_long$TICKER)
+Top_20_GU_Prices_long$TICKER <- gsub("4503 JN", "4503 JT", Top_20_GU_Prices_long$TICKER)
+Top_20_GU_Prices_long$TICKER <- gsub("SN  LN", "SN/ LN", Top_20_GU_Prices_long$TICKER)
+
+# TICKER cleanup for Top_GU_Prices
+Top_20_Exposure$TICKER <- gsub("ATLN VX", "ATLN SW", Top_20_Exposure$TICKER)
+Top_20_Exposure$TICKER <- gsub("9983 JP", "9983 JT", Top_20_Exposure$TICKER)
+Top_20_Exposure$TICKER <- gsub("2413 JP", "2413 JT", Top_20_Exposure$TICKER)
+Top_20_Exposure$TICKER <- gsub("6762 JP", "6762 JT", Top_20_Exposure$TICKER)
+Top_20_Exposure$TICKER <- gsub("9983 JN", "9983 JT", Top_20_Exposure$TICKER)
+Top_20_Exposure$TICKER <- gsub("4911 JN", "4911 JP", Top_20_Exposure$TICKER)
+Top_20_Exposure$TICKER <- gsub("7747 JN", "7747 JP", Top_20_Exposure$TICKER)
+Top_20_Exposure$TICKER <- gsub("4503 JN", "4503 JT", Top_20_Exposure$TICKER)
+Top_20_Exposure$TICKER <- gsub("7747 JT", "7747 JP", Top_20_Exposure$TICKER)
+Top_20_Exposure$TICKER <- gsub("4507 JT", "4507 JP", Top_20_Exposure$TICKER)
+Top_20_Exposure$TICKER <- gsub("000660 KP", "000660 KS", Top_20_Exposure$TICKER)
+
+# Join the top exposure GU & Top GU prices
+Top_20_GU <- inner_join(Top_20_Exposure, Top_20_GU_Prices_long, by = c("Date", "TICKER")) 
+
+
+################### For Joining Exposure with All Securities Prices #################
+
+# Load & cleanup prices data
+GU_Prices <- read.csv("GU_Prices.csv", header = TRUE)
+str(GU_Prices)
+
+names(GU_Prices) = gsub(pattern = "^X", replacement = "", x = names(GU_Prices))
+GU_Prices$Date <- as.Date(GU_Prices$Date, format = "%m/%d/%Y")
+names(GU_Prices) <- gsub('\\.', '-', names(GU_Prices))
+
+# Long data format
+GU_Prices_long <- GU_Prices %>%
+  pivot_longer(-Date) %>% rename("TICKER" = name, "Price" = value)
+
+# Join Exposure & Prices
+GU_Consol <- inner_join(Global_Universe_Exposure, GU_Prices_long, 
+                        by = c("Date", "TICKER"))
+
+# Reduce to quarterly
+GU_Consol_Quarterly <- GU_Consol %>% 
+                       group_by(Quarter = quarter(Date,T)) %>% 
+                       filter(Date == max(Date)) %>% ungroup %>% 
+                       select(-Quarter)
+
+# Create quartile rank column
+GU_Consol_Quarterly_Rank <- GU_Consol_Quarterly %>% 
+  select(Date, TICKER, NAME, `MSCI COUNTRY`, SECTOR, 'FV UPSIDE', Price, Exposure) %>%
+  group_by(Date) %>% mutate(Rank = ntile(desc(Exposure), 30))
+
+Top_Quantile <- GU_Consol_Quarterly_Rank %>% filter(Rank == 6)
+
+################################# MSCI ACWII Exposure ################################
+ACWII_Exposure <- read.csv("MSCI_ACWII_Exposure_0116_0720.csv", header = TRUE) %>% 
+                  as_tibble() 
+str(ACWII_Exposure)
+
+# Data cleaning and formatting
+ACWII_Exposure <- ACWII_Exposure %>% mutate_all(funs(str_replace(.,"--","0")))
+
+# Convert exposure columns from character to numeric
+ACWII_Exposure[,3:607] <- ACWII_Exposure[,3:607] %>% mutate_if(is.character, as.numeric)
+
+# Clean the column names except NAME & SEDOL
+names(ACWII_Exposure)[3:607] <- names(ACWII_Exposure)[3:607] %>% 
+  substr(start = 2, stop = 10)
+names(ACWII_Exposure) <- gsub('\\.', '-', names(ACWII_Exposure))
+
+# Combine the duplicated column dates to common dates
+ACWII_Exposure_Value <- sapply(unique(names(ACWII_Exposure)[-c(1,2)]), 
+      function(x) rowSums(ACWII_Exposure[-c(1,2)][,grep(x, names(ACWII_Exposure)[-c(1,2)]), 
+                                                                      drop = FALSE]))
+
+# Bind together with NAME & SEDOL columns
+ACWII_Exposure <- cbind(ACWII_Exposure[c("NAME","SEDOL")], ACWII_Exposure_Value)
+
+# Remove Exposure Jan,Feb 2016 & May 2020 
+ACWII_Exposure <- ACWII_Exposure[,c(1:54,56:57)]
+
+# Convert to long format
+ACWII_Exposure_long <- ACWII_Exposure %>% pivot_longer(-c(NAME,SEDOL)) %>% 
+  rename("Date" = name, "Exposure" = value)
+ACWII_Exposure_long$Date <- as.Date(ACWII_Exposure_long$Date, 
+                                       format = '%d-%b-%y')
+
+## Load ACWII Constituents Prices
+ACWII_Prices <- read.csv("ACWII_Prices.csv", header = TRUE)
+str(ACWII_Prices)
+
+names(ACWII_Prices) = gsub(pattern = "^X", replacement = "", x = names(ACWII_Prices))
+ACWII_Prices$Date <- as.Date(ACWII_Prices$Date, format = "%m/%d/%Y")
+
+ACWII_Prices[,2:126] <- ACWII_Prices[,2:126] %>% mutate_if(is.character, as.numeric)
+
+# Long data format
+ACWII_Prices_long <- ACWII_Prices %>%
+  pivot_longer(-Date) %>% rename("SEDOL" = name, "Price" = value)
+
+ACWII_Consol <- inner_join(ACWII_Exposure_long, ACWII_Prices_long, 
+                           by = c("Date","SEDOL"))
+
+ACWII_Consol_Quarterly <- ACWII_Consol %>% group_by(Quarter = quarter(Date,T)) %>% 
+                          filter(Date == max(Date)) %>% ungroup %>% select(-Quarter)
+
+# Create quartile rank column
+ACWII_Consol_Quarterly_Rank <- ACWII_Consol_Quarterly %>% 
+                              select(Date, SEDOL, NAME, Exposure, Price) %>%
+                          group_by(Date) %>% mutate(Rank = ntile(desc(Exposure), 130)) %>%
+                          arrange(-desc(Date))
+
+ACWII_Top_Quantile <- ACWII_Consol_Quarterly_Rank %>% filter(Rank == 1) %>% group_by(Date) %>%
+                      arrange(-desc(Date), desc(Exposure))
+
+
