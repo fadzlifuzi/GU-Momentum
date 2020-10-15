@@ -1,0 +1,74 @@
+
+## TICKER Cleanup for Global Universe: From Bloomberg to FactSet ####
+GU_Exposure_Tickers <- unique(Global_Universe_Exposure$TICKER)
+
+Global_Universe_Exposure$TICKER <- gsub(" ", "-", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-R-TB", "-R-TH", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-CH", "-CN", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-C1", "-CN", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-C2", "-CN", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-JN", "-JP", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-JT", "-JP", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-ID", "-GB", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-IJ", "-ID", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-KS", "-KR", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-TT", "-TW", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-BB", "-BE", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-DC", "-DK", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-FH", "-FI", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-FP", "-FR", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-GR", "-DE", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-GY", "-DE", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-IM", "-IT", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-NA", "-NL", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-SM", "-ES", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("B-SS", ".B-SS", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-VX", "-CH", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("CRH-ID", "CRH-GB", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-LN", "-GB", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("/-GB", "-GB", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("/A-GB", ".A-GB", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-CI", "-CL", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-MM", "-MX", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("ATCOA-SS", "ATCO-A-SE", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-TB", "-TH", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("SPOST-SP", "S08-SG", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-SW", "-CH", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-Hk", "-HK", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-LI", "-GB", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("FR-SP", "EB5-SG", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("AB.B-SS", "ABB-SE", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("ATCO.A-CH", "ATCO-A-SE", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("ATCO.B-CH", "ATCO-B-SE", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-SS", "-SE", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-KP", "-KR", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-B-DK", ".B-DK", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("-PM", "-PH", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("GGR-SP", "E5H-SG", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("AREIT-SP", "A17U-SG", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("KEP-SP", "BN4-SG", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("CD-SP", "C52-SG", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("ST-SP", "Z74-SG", Global_Universe_Exposure$TICKER)
+Global_Universe_Exposure$TICKER <- gsub("SMGR-GB", "SMGR-ID", Global_Universe_Exposure$TICKER)
+
+# Specifically for GU_Prices_long
+GU_Prices_long$TICKER <- gsub("OM-US", "XOM-US", GU_Prices_long$TICKER)
+ 
+# Write unique list to csv
+write.csv(unique(Global_Universe_Exposure$TICKER), "Global_Universe_Exposure$TICKER.csv")
+
+
+# Checking consistencies. Run and adjust until almost all stocks are similar.
+TICKER_GU_Prices <- unique(GU_Prices_long$TICKER)
+TICKER_GU_Exposure <- unique(Global_Universe_Exposure$TICKER)
+TICKER_GU_Exposure[!(TICKER_GU_Exposure %in% TICKER_GU_Prices)] # Check TICKER similarity
+
+
+
+
+
+
+
+
+
+
